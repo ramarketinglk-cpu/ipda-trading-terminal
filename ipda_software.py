@@ -44,7 +44,7 @@ st.sidebar.header("🔑 Membership & License Auth")
 input_license_key = st.sidebar.text_input("Enter License Key", type="password", help=" WhatsApp us for Lisence key +94750511732 ")
 
 if not input_license_key:
-    st.title("🏛️ IPDA Pro Master Entry)")
+    st.title(" IPDA Pro Master Entry")
     st.info("🔒 Please enter a valid License Key in the sidebar to access the Trading Engine.")
     st.markdown(
         """
