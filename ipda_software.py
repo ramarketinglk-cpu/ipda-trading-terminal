@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG & LAYOUT ---
 st.set_page_config(
-    page_title="IPDA Pro  Engine)",
+    page_title="IPDA Pro Engine",
     page_icon="🏛️",
     layout="wide"
 )
@@ -15,7 +15,7 @@ st.set_page_config(
 # Auto Refresh Every 300 Seconds
 st_autorefresh(interval=300 * 1000, key="ipda_auto_refresh")
 
-st.title("🏛️ IPDA Pro  Engine)")
+st.title("🏛️ IPDA Pro Engine")
 st.caption("Bybit Perpetual Futures • Dynamic Risk Sizing • SLST Timezone (UTC+5:30) • Live Telegram Signals")
 
 # --- TOP 50 BYBIT PERPETUAL COINS LIST ---
@@ -85,28 +85,45 @@ BYBIT_TF_MAP = {
     "4h": "240"
 }
 
-# --- 1. DATA ENGINE (Bybit v5 Public Futures API with SLST Conversion) ---
+# --- 1. DATA ENGINE (Bybit Public Futures API with Proxy Fallback Logic) ---
 @st.cache_data(ttl=10)
 def fetch_bybit_futures_data(symbol_name, tf, limit=300):
     try:
         interval = BYBIT_TF_MAP.get(tf, "15")
-        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol_name}&interval={interval}&limit={limit}"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            st.error(f"Bybit API HTTP Error [{response.status_code}]: {response.text}")
-            return pd.DataFrame()
-            
-        json_data = response.json()
-        if json_data.get('retCode') != 0:
-            st.error(f"Bybit API Logic Error: {json_data.get('retMsg')}")
+        target_url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol_name}&interval={interval}&limit={limit}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+
+        # Step 1: Direct Bybit Call Attempt
+        response = None
+        try:
+            res = requests.get(target_url, headers=headers, timeout=5)
+            if res.status_code == 200 and res.json().get('retCode') == 0:
+                response = res
+        except Exception:
+            response = None
+
+        # Step 2: Proxy Router Fallback (Bypasses CloudFront 403 on Streamlit Cloud)
+        if response is None:
+            proxy_url = f"https://api.allorigins.win/raw?url={requests.utils.quote(target_url)}"
+            try:
+                res = requests.get(proxy_url, timeout=10)
+                if res.status_code == 200:
+                    response = res
+            except Exception:
+                response = None
+
+        # Step 3: Backup Proxy Route
+        if response is None:
+            backup_proxy_url = f"https://corsproxy.io/?{requests.utils.quote(target_url)}"
+            response = requests.get(backup_proxy_url, timeout=10)
+
+        if response is None or response.status_code != 200:
+            st.error(f"Unable to fetch Bybit data for {symbol_name}. API blocked or unreachable.")
             return pd.DataFrame()
 
-        raw_list = json_data['result']['list']
+        json_data = response.json()
+        raw_list = json_data.get('result', {}).get('list', [])
+
         if not raw_list:
             return pd.DataFrame()
 
