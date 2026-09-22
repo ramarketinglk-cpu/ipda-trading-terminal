@@ -44,17 +44,17 @@ st.sidebar.header("🔑 Membership & License Auth")
 input_license_key = st.sidebar.text_input("Enter License Key", type="password", help=" WhatsApp us for Lisence key +94750511732 ")
 
 if not input_license_key:
-    st.title("🏛️ IPDA Pro Terminal Engine (SaaS Edition)")
+    st.title("🏛️ IPDA Pro Master Entry)")
     st.info("🔒 Please enter a valid License Key in the sidebar to access the Trading Engine.")
     st.markdown(
         """
         ---
         ### 💡 How to get a License Key?
         To access the **IPDA Institutional Perpetual Futures Engine**, subscribe to a Monthly or Lifetime plan:
-        - **Monthly Subscription:** $29 / month
-        - **Lifetime Pass:** $199 one-time
+        - **Monthly Subscription:** $5 / month
+        - **Lifetime Pass:** $25 one-time
         
-        *Contact support or visit our Telegram channel to activate your key.*
+        *Contact +94750511732 or visit our Telegram @mr_dilan to activate your key.*
         """
     )
     st.stop()
