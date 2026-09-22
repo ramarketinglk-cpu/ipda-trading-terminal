@@ -8,8 +8,8 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG & LAYOUT ---
 st.set_page_config(
-    page_title="IPDA Pro SaaS Terminal Engine",
-    page_icon="🏛️",
+    page_title="IPDA Master Entry",
+    page_icon="🎯",
     layout="wide"
 )
 
@@ -41,7 +41,7 @@ def verify_license_key(key):
 
 # --- SIDEBAR LICENSE VERIFICATION ---
 st.sidebar.header("🔑 Membership & License Auth")
-input_license_key = st.sidebar.text_input("Enter License Key", type="password", help="ඔබේ Subscription License Key එක ඇතුළත් කරන්න")
+input_license_key = st.sidebar.text_input("Enter License Key", type="password", help=" WhatsApp us for Lisence key +94750511732 ")
 
 if not input_license_key:
     st.title("🏛️ IPDA Pro Terminal Engine (SaaS Edition)")
