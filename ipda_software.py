@@ -81,7 +81,7 @@ else:
 st.sidebar.markdown("---")
 
 # --- MAIN ENGINE APP (RUNS ONLY IF LICENSE IS VALID) ---
-st.title("🏛️ IPDA Pro SaaS Terminal Engine")
+st.title("IPDA Pro Master Entry")
 st.caption(f"Authenticated User: {owner_name} • Plan: {plan_type} • SLST Timezone (UTC+5:30)")
 
 # --- TOP 50 PERPETUAL PAIRS (OKX API STANDARDS) ---
