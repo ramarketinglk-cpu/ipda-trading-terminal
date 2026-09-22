@@ -3,11 +3,12 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import requests
+from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG & LAYOUT ---
 st.set_page_config(
-    page_title="IPDA Pro Engine",
+    page_title="IPDA Pro SaaS Terminal Engine",
     page_icon="🏛️",
     layout="wide"
 )
@@ -15,8 +16,74 @@ st.set_page_config(
 # Auto Refresh Every 300 Seconds
 st_autorefresh(interval=300 * 1000, key="ipda_auto_refresh")
 
-st.title("🏛️ IPDA Pro Engine")
-st.caption("Bybit Perpetual Futures • Dynamic Risk Sizing • SLST Timezone (UTC+5:30) • Live Telegram Signals")
+# --- 0. SAAS LICENSE KEY & SUBSCRIPTION DATABASE ---
+# ඔබට ලැබෙන සේවාදායකයන්ට (Clients) නව Key සහ Expiry Date එකක් මෙතැනට එකතු කරන්න.
+VALID_LICENSES = {
+    # Key Name                     Plan Type        Expiration Date (YYYY-MM-DD)
+    "IPDA-ADMIN-2026":            {"type": "LIFETIME", "expiry": "2099-12-31", "owner": "Admin Master Key"},
+    "IPDA-MONTHLY-USER1":         {"type": "MONTHLY",  "expiry": "2026-10-31", "owner": "Client A"},
+    "IPDA-MONTHLY-USER2":         {"type": "MONTHLY",  "expiry": "2026-12-15", "owner": "Client B"},
+    "IPDA-LIFETIME-VIP":          {"type": "LIFETIME", "expiry": "2099-12-31", "owner": "VIP Trader"},
+}
+
+def verify_license_key(key):
+    clean_key = key.strip()
+    if clean_key in VALID_LICENSES:
+        user_info = VALID_LICENSES[clean_key]
+        expiry_date = pd.to_datetime(user_info["expiry"]).date()
+        today_date = pd.to_datetime("today").date()
+
+        if today_date <= expiry_date:
+            days_left = (expiry_date - today_date).days
+            return True, user_info["type"], user_info["owner"], expiry_date, days_left, "ACTIVE"
+        else:
+            return False, user_info["type"], user_info["owner"], expiry_date, 0, "EXPIRED"
+    return False, None, None, None, 0, "INVALID"
+
+# --- SIDEBAR LICENSE VERIFICATION ---
+st.sidebar.header("🔑 Membership & License Auth")
+input_license_key = st.sidebar.text_input("Enter License Key", type="password", help="ඔබේ Subscription License Key එක ඇතුළත් කරන්න")
+
+if not input_license_key:
+    st.title("🏛️ IPDA Pro Terminal Engine (SaaS Edition)")
+    st.info("🔒 Please enter a valid License Key in the sidebar to access the Trading Engine.")
+    st.markdown(
+        """
+        ---
+        ### 💡 How to get a License Key?
+        To access the **IPDA Institutional Perpetual Futures Engine**, subscribe to a Monthly or Lifetime plan:
+        - **Monthly Subscription:** $29 / month
+        - **Lifetime Pass:** $199 one-time
+        
+        *Contact support or visit our Telegram channel to activate your key.*
+        """
+    )
+    st.stop()
+
+is_valid, plan_type, owner_name, exp_date, days_remaining, status_code = verify_license_key(input_license_key)
+
+if not is_valid:
+    if status_code == "EXPIRED":
+        st.sidebar.error(f"❌ License Expired on {exp_date}!")
+        st.error("⛔ Your subscription license key has EXPIRED. Please renew your membership to regain access.")
+    else:
+        st.sidebar.error("❌ Invalid License Key!")
+        st.error("⛔ Invalid License Key provided. Please check your credentials or purchase a valid subscription.")
+    st.stop()
+
+# License Success Status Card in Sidebar
+st.sidebar.success(f"✅ Active: {plan_type}")
+st.sidebar.caption(f"👤 Owner: **{owner_name}**")
+if plan_type == "LIFETIME":
+    st.sidebar.caption("♾️ Validity: **Lifetime Access**")
+else:
+    st.sidebar.caption(f"📅 Expiry: **{exp_date}** ({days_remaining} days left)")
+
+st.sidebar.markdown("---")
+
+# --- MAIN ENGINE APP (RUNS ONLY IF LICENSE IS VALID) ---
+st.title("🏛️ IPDA Pro SaaS Terminal Engine")
+st.caption(f"Authenticated User: {owner_name} • Plan: {plan_type} • SLST Timezone (UTC+5:30)")
 
 # --- TOP 50 BYBIT PERPETUAL COINS LIST ---
 TOP_50_COINS = [
@@ -93,7 +160,6 @@ def fetch_bybit_futures_data(symbol_name, tf, limit=300):
         target_url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol_name}&interval={interval}&limit={limit}"
         headers = {'User-Agent': 'Mozilla/5.0'}
 
-        # Step 1: Direct Bybit Call Attempt
         response = None
         try:
             res = requests.get(target_url, headers=headers, timeout=5)
@@ -102,7 +168,6 @@ def fetch_bybit_futures_data(symbol_name, tf, limit=300):
         except Exception:
             response = None
 
-        # Step 2: Proxy Router Fallback (Bypasses CloudFront 403 on Streamlit Cloud)
         if response is None:
             proxy_url = f"https://api.allorigins.win/raw?url={requests.utils.quote(target_url)}"
             try:
@@ -112,7 +177,6 @@ def fetch_bybit_futures_data(symbol_name, tf, limit=300):
             except Exception:
                 response = None
 
-        # Step 3: Backup Proxy Route
         if response is None:
             backup_proxy_url = f"https://corsproxy.io/?{requests.utils.quote(target_url)}"
             response = requests.get(backup_proxy_url, timeout=10)
@@ -127,9 +191,8 @@ def fetch_bybit_futures_data(symbol_name, tf, limit=300):
         if not raw_list:
             return pd.DataFrame()
 
-        # Bybit v5 returns candles in descending order [startTime, openPrice, highPrice, lowPrice, closePrice, volume, turnover]
         df = pd.DataFrame(raw_list, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'Turnover'])
-        df = df.iloc[::-1].reset_index(drop=True)  # Reverse to chronological order
+        df = df.iloc[::-1].reset_index(drop=True)
         
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
