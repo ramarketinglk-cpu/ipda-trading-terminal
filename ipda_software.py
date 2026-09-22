@@ -1,5 +1,4 @@
 import streamlit as st
-import ccxt
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -8,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG & LAYOUT ---
 st.set_page_config(
-    page_title="IPDA Pro",
+    page_title="IPDA Pro  Engine)",
     page_icon="🏛️",
     layout="wide"
 )
@@ -16,26 +15,26 @@ st.set_page_config(
 # Auto Refresh Every 300 Seconds
 st_autorefresh(interval=300 * 1000, key="ipda_auto_refresh")
 
-st.title("🏛️ IPDA Pro Master Entry ")
-st.caption("Binance Futures Risk Management • SLST Timezone (UTC+5:30) • Instant Telegram Signals")
+st.title("🏛️ IPDA Pro  Engine)")
+st.caption("Bybit Perpetual Futures • Dynamic Risk Sizing • SLST Timezone (UTC+5:30) • Live Telegram Signals")
 
-# --- TOP 50 BINANCE PERPETUAL COINS LIST ---
+# --- TOP 50 BYBIT PERPETUAL COINS LIST ---
 TOP_50_COINS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
-    "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "SUI/USDT",
-    "NEAR/USDT", "PEPE/USDT", "APT/USDT", "FET/USDT", "LTC/USDT",
-    "DOT/USDT", "SHIB/USDT", "WIF/USDT", "RENDER/USDT", "TAO/USDT",
-    "ARBITRUM/USDT", "OP/USDT", "TIA/USDT", "INJ/USDT", "STX/USDT",
-    "ORDI/USDT", "FIL/USDT", "FLOKI/USDT", "BONK/USDT", "SEI/USDT",
-    "AAVE/USDT", "RUNE/USDT", "PENDLE/USDT", "ARKM/USDT", "WLD/USDT",
-    "ENA/USDT", "NOT/USDT", "JUP/USDT", "ONDO/USDT", "GALA/USDT",
-    "TRX/USDT", "BCH/USDT", "MATIC/USDT", "ETC/USDT", "ATOM/USDT",
-    "FTM/USDT", "ALGO/USDT", "KAS/USDT"
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT",
+    "NEARUSDT", "PEPEUSDT", "APTUSDT", "FETUSDT", "LTCUSDT",
+    "DOTUSDT", "SHIBUSDT", "WIFUSDT", "RENDERUSDT", "TAOUSDT",
+    "ARBUSDT", "OPUSDT", "TIAUSDT", "INJUSDT", "STXUSDT",
+    "ORDIUSDT", "FILUSDT", "FLOKIUSDT", "BONKUSDT", "SEIUSDT",
+    "AAVEUSDT", "RUNEUSDT", "PENDLEUSDT", "ARKMUSDT", "WLDUSDT",
+    "ENAUSDT", "NOTUSDT", "JUPUSDT", "ONDOUSDT", "GALAUSDT",
+    "TRXUSDT", "BCHUSDT", "MATICUSDT", "ETCUSDT", "ATOMUSDT",
+    "FTMUSDT", "ALGOUSDT", "KASUSDT"
 ]
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("🎯 Pair & Strategy Settings")
-symbol = st.sidebar.selectbox("Select Binance Pair", TOP_50_COINS, index=0)
+symbol = st.sidebar.selectbox("Select Bybit Perpetual Pair", TOP_50_COINS, index=0)
 execution_tf = st.sidebar.selectbox("Execution Timeframe", ["5m", "15m", "1h"], index=1)
 htf_tf = "4h"
 
@@ -78,28 +77,54 @@ def send_telegram_alert(token, chat_id, message):
     except Exception as e:
         st.sidebar.error(f"Telegram Alert Error: {e}")
 
-# --- 1. DATA ENGINE (Binance API with SLST Timezone Conversion) ---
+# Map Timeframe to Bybit v5 API Interval Format
+BYBIT_TF_MAP = {
+    "5m": "5",
+    "15m": "15",
+    "1h": "60",
+    "4h": "240"
+}
+
+# --- 1. DATA ENGINE (Bybit v5 Public Futures API with SLST Conversion) ---
 @st.cache_data(ttl=10)
-def fetch_futures_data(symbol_name, tf, limit=300):
+def fetch_bybit_futures_data(symbol_name, tf, limit=300):
     try:
-        exchange = ccxt.binance({
-            'options': {'defaultType': 'future'},
-            'enableRateLimit': True,
-        })
-        ohlcv = exchange.fetch_ohlcv(symbol_name, timeframe=tf, limit=limit)
-        if not ohlcv:
+        interval = BYBIT_TF_MAP.get(tf, "15")
+        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol_name}&interval={interval}&limit={limit}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            st.error(f"Bybit API HTTP Error [{response.status_code}]: {response.text}")
             return pd.DataFrame()
             
-        df = pd.DataFrame(ohlcv, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        json_data = response.json()
+        if json_data.get('retCode') != 0:
+            st.error(f"Bybit API Logic Error: {json_data.get('retMsg')}")
+            return pd.DataFrame()
+
+        raw_list = json_data['result']['list']
+        if not raw_list:
+            return pd.DataFrame()
+
+        # Bybit v5 returns candles in descending order [startTime, openPrice, highPrice, lowPrice, closePrice, volume, turnover]
+        df = pd.DataFrame(raw_list, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'Turnover'])
+        df = df.iloc[::-1].reset_index(drop=True)  # Reverse to chronological order
+        
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
+        df['Timestamp'] = pd.to_numeric(df['Timestamp'], errors='coerce')
         df['Timestamp'] = pd.to_datetime(df['Timestamp'], unit='ms', utc=True)
         df['Timestamp'] = df['Timestamp'].dt.tz_convert('Asia/Colombo')
         df.set_index('Timestamp', inplace=True)
-        return df
+        
+        return df[['Open', 'High', 'Low', 'Close', 'Volume']]
     except Exception as e:
-        st.error(f"Binance Data Fetch Error for {symbol_name}: {e}")
+        st.error(f"Bybit Data Fetch Error for {symbol_name}: {e}")
         return pd.DataFrame()
 
 # --- 2. HTF TREND CALCULATOR ---
@@ -277,8 +302,8 @@ def process_ipda_engine_v3(df, htf_trend, rr_ratio, session_filter, htf_filter, 
     return df, trade_signals, stats
 
 # --- 6. EXECUTION & RENDERING ---
-raw_df = fetch_futures_data(symbol, execution_tf, limit=limit)
-htf_df = fetch_futures_data(symbol, htf_tf, limit=100)
+raw_df = fetch_bybit_futures_data(symbol, execution_tf, limit=limit)
+htf_df = fetch_bybit_futures_data(symbol, htf_tf, limit=100)
 
 if not raw_df.empty and not htf_df.empty:
     htf_bias = calculate_htf_trend(htf_df)
@@ -305,7 +330,7 @@ if not raw_df.empty and not htf_df.empty:
     latest_trade = signals_list[-1] if signals_list else None
 
     if latest_trade:
-        st.subheader("⚡ Active Signal Setup (SLST Timezone)")
+        st.subheader("⚡ Active Signal Setup (Bybit Futures)")
         c_type = latest_trade['Type']
         box_color = "rgba(0, 230, 118, 0.1)" if c_type == "LONG" else "rgba(255, 82, 82, 0.1)"
         border_color = "#00E676" if c_type == "LONG" else "#FF5252"
@@ -328,7 +353,7 @@ if not raw_df.empty and not htf_df.empty:
         p4.metric("📌 OUTCOME STATUS", f"{latest_trade['Outcome']}")
 
         # POSITION SIZE METRICS DISPLAY
-        st.markdown("##### 🧮 Binance Futures Position Sizing Breakdown")
+        st.markdown("##### 🧮 Bybit Futures Position Sizing Breakdown")
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Max Dollar Risk ($)", f"${latest_trade['Risk_USD']:.2f}")
         r2.metric("Exact Order Qty (Coins)", f"{latest_trade['Qty']:.4f}")
@@ -339,7 +364,7 @@ if not raw_df.empty and not htf_df.empty:
         if enable_telegram and latest_trade['Signal_ID'] not in st.session_state.sent_signals:
             emoji = "🟢" if c_type == "LONG" else "🔴"
             msg = (
-                f"🚨 *NEW IPDA SIGNAL ALERT* 🚨\n\n"
+                f"🚨 *NEW BYBIT IPDA SIGNAL ALERT* 🚨\n\n"
                 f"*Pair:* `{symbol}` PERP\n"
                 f"*Signal:* {emoji} *{c_type}*\n"
                 f"*Time:* `{latest_trade['Time_SLST']}` (SLST)\n\n"
@@ -391,4 +416,4 @@ if not raw_df.empty and not htf_df.empty:
         st.info(f"No high-probability signals matched the strict session and HTF filters for {symbol} in this range.")
 
 else:
-    st.warning(f"Connecting to Binance Futures API for {symbol}...")
+    st.warning(f"Connecting to Bybit Futures API for {symbol}...")
