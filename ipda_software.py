@@ -13,8 +13,26 @@ st.set_page_config(
     layout="wide"
 )
 
-# Auto Refresh Every 300 Seconds
+# Auto Refresh Every 300 Seconds for 24/7 Cloud Background Execution
 st_autorefresh(interval=300 * 1000, key="ipda_auto_refresh")
+
+# --- READ SECRETS AS DEFAULTS IF AVAILABLE ON STREAMLIT CLOUD ---
+secret_tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "") if "TELEGRAM_BOT_TOKEN" in st.secrets else ""
+secret_tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "") if "TELEGRAM_CHAT_ID" in st.secrets else ""
+
+# --- INITIALIZE SESSION STATE FOR PERSISTENT DATA ---
+if "saved_license_key" not in st.session_state:
+    st.session_state.saved_license_key = ""
+if "saved_telegram_token" not in st.session_state:
+    st.session_state.saved_telegram_token = secret_tg_token
+if "saved_telegram_chat_id" not in st.session_state:
+    st.session_state.saved_telegram_chat_id = secret_tg_chat_id
+if "telegram_enabled" not in st.session_state:
+    st.session_state.telegram_enabled = True if secret_tg_token and secret_tg_chat_id else False
+if "selected_tg_coins" not in st.session_state:
+    st.session_state.selected_tg_coins = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+if "sent_signals" not in st.session_state:
+    st.session_state.sent_signals = set()
 
 # --- 0. SAAS LICENSE KEY & SUBSCRIPTION DATABASE ---
 VALID_LICENSES = {
@@ -39,12 +57,21 @@ def verify_license_key(key):
             return False, user_info["type"], user_info["owner"], expiry_date, 0, "EXPIRED"
     return False, None, None, None, 0, "INVALID"
 
-# --- SIDEBAR LICENSE VERIFICATION ---
+# --- SIDEBAR LICENSE VERIFICATION WITH STATE MEMORY ---
 st.sidebar.header("🔑 Membership & License Auth")
-input_license_key = st.sidebar.text_input("Enter License Key", type="password", help=" WhatsApp us for Lisence key +94750511732 ")
 
-if not input_license_key:
-    st.title(" IPDA Pro Master Entry")
+input_license_key = st.sidebar.text_input(
+    "Enter License Key", 
+    value=st.session_state.saved_license_key,
+    type="password", 
+    help="WhatsApp us for License key +94750511732"
+)
+
+if input_license_key:
+    st.session_state.saved_license_key = input_license_key
+
+if not st.session_state.saved_license_key:
+    st.title("🎯 IPDA Pro Master Entry")
     st.info("🔒 Please enter a valid License Key in the sidebar to access the Trading Engine.")
     st.markdown(
         """
@@ -59,7 +86,7 @@ if not input_license_key:
     )
     st.stop()
 
-is_valid, plan_type, owner_name, exp_date, days_remaining, status_code = verify_license_key(input_license_key)
+is_valid, plan_type, owner_name, exp_date, days_remaining, status_code = verify_license_key(st.session_state.saved_license_key)
 
 if not is_valid:
     if status_code == "EXPIRED":
@@ -77,6 +104,13 @@ if plan_type == "LIFETIME":
     st.sidebar.caption("♾️ Validity: **Lifetime Access**")
 else:
     st.sidebar.caption(f"📅 Expiry: **{exp_date}** ({days_remaining} days left)")
+
+if st.sidebar.button("🚪 Logout / Reset License"):
+    st.session_state.saved_license_key = ""
+    st.session_state.saved_telegram_token = ""
+    st.session_state.saved_telegram_chat_id = ""
+    st.session_state.telegram_enabled = False
+    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -117,18 +151,43 @@ account_balance = st.sidebar.number_input("Account Balance ($)", min_value=10.0,
 risk_percentage = st.sidebar.slider("Risk Per Trade (%)", min_value=0.25, max_value=5.0, value=1.0, step=0.25)
 user_leverage = st.sidebar.number_input("Leverage (x)", min_value=1, max_value=125, value=10, step=1)
 
-# --- TELEGRAM BOT CONFIGURATION ---
+# --- TELEGRAM BOT CONFIGURATION WITH COIN SELECTION & PERMANENT STORAGE ---
 st.sidebar.markdown("---")
 st.sidebar.header("📲 Telegram Bot Settings")
-enable_telegram = st.sidebar.checkbox("Enable Telegram Alerts", value=False)
-telegram_bot_token = st.sidebar.text_input("Bot Token", value="", type="password", help="BotFather මගින් ලැබෙන Bot Token එක ඇතුළත් කරන්න")
-telegram_chat_id = st.sidebar.text_input("Chat ID", value="", help="ඔබේ Telegram User / Channel Chat ID එක ඇතුළත් කරන්න")
 
-# State tracking for Sent Signals to prevent duplicates
-if 'sent_signals' not in st.session_state:
-    st.session_state.sent_signals = set()
+enable_telegram = st.sidebar.checkbox(
+    "Enable Telegram Alerts", 
+    value=st.session_state.telegram_enabled
+)
+st.session_state.telegram_enabled = enable_telegram
 
-# Function to Send Telegram Alert
+telegram_bot_token = st.sidebar.text_input(
+    "Bot Token", 
+    value=st.session_state.saved_telegram_token, 
+    type="password", 
+    help="BotFather මගින් ලැබෙන Bot Token එක ඇතුළත් කරන්න"
+)
+if telegram_bot_token:
+    st.session_state.saved_telegram_token = telegram_bot_token
+
+telegram_chat_id = st.sidebar.text_input(
+    "Chat ID", 
+    value=st.session_state.saved_telegram_chat_id, 
+    help="ඔබේ Telegram User / Channel Chat ID එක ඇතුළත් කරන්න"
+)
+if telegram_chat_id:
+    st.session_state.saved_telegram_chat_id = telegram_chat_id
+
+# MULTI-SELECT COIN FILTER FOR TELEGRAM ALERTS
+tg_selected_coins = st.sidebar.multiselect(
+    "🔔 Select Coins for Telegram Alerts",
+    options=TOP_50_COINS,
+    default=[c for c in st.session_state.selected_tg_coins if c in TOP_50_COINS],
+    help="මෙතැනින් තෝරන Pairs සඳහා පමණක් Telegram Alerts නිකුත් වේ."
+)
+st.session_state.selected_tg_coins = tg_selected_coins
+
+# Function to Send Minimal Telegram Alert
 def send_telegram_alert(token, chat_id, message):
     if not token or not chat_id:
         return
@@ -176,9 +235,8 @@ def fetch_futures_data(inst_id, tf, limit=300):
         if not raw_list:
             return pd.DataFrame()
 
-        # OKX returns candles: [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm]
         df = pd.DataFrame(raw_list, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'VolCcy', 'VolCcyQuote', 'Confirm'])
-        df = df.iloc[::-1].reset_index(drop=True)  # Reverse to chronological order
+        df = df.iloc[::-1].reset_index(drop=True)
         
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -428,24 +486,25 @@ if not raw_df.empty and not htf_df.empty:
         r3.metric("Position Size (Notional $)", f"${latest_trade['Position_USD']:.2f}")
         r4.metric("Required Margin ($)", f"${latest_trade['Margin_USD']:.2f}")
 
-        # --- TELEGRAM BOT SIGNAL DISPATCHER ---
-        if enable_telegram and latest_trade['Signal_ID'] not in st.session_state.sent_signals:
-            emoji = "🟢" if c_type == "LONG" else "🔴"
+        # --- MINIMAL TELEGRAM BOT SIGNAL DISPATCHER ---
+        if (st.session_state.telegram_enabled and 
+            selected_coin in st.session_state.selected_tg_coins and 
+            latest_trade['Signal_ID'] not in st.session_state.sent_signals):
+            
+            # MINIMAL TELEGRAM FORMAT (Coin - Entry - TP - SL)
             msg = (
-                f"🚨 *NEW IPDA SIGNAL ALERT* 🚨\n\n"
-                f"*Pair:* `{clean_symbol_name}` PERP\n"
-                f"*Signal:* {emoji} *{c_type}*\n"
-                f"*Time:* `{latest_trade['Time_SLST']}` (SLST)\n\n"
-                f"📍 *Entry:* `${latest_trade['Entry']:.4f}`\n"
-                f"🛑 *Stop Loss:* `${latest_trade['SL']:.4f}`\n"
-                f"🎯 *Take Profit 1:* `${latest_trade['TP1']:.4f}`\n\n"
-                f"🧮 *POSITION SIZING ({user_leverage}x Leverage):*\n"
-                f"• *Order Qty:* `{latest_trade['Qty']:.4f}` Coins\n"
-                f"• *Max Dollar Risk:* `${latest_trade['Risk_USD']:.2f}`\n"
-                f"• *Required Margin:* `${latest_trade['Margin_USD']:.2f}`\n\n"
-                f"🏛️ _IPDA Institutional Engine_"
+                f"🚨 *IPDA SIGNAL ALERT*\n\n"
+                f"*Coin:* `{clean_symbol_name}` ({c_type})\n"
+                f"*Entry:* `${latest_trade['Entry']:.4f}`\n"
+                f"*TP:* `${latest_trade['TP1']:.4f}`\n"
+                f"*SL:* `${latest_trade['SL']:.4f}`"
             )
-            send_telegram_alert(telegram_bot_token, telegram_chat_id, msg)
+            
+            send_telegram_alert(
+                st.session_state.saved_telegram_token, 
+                st.session_state.saved_telegram_chat_id, 
+                msg
+            )
             st.session_state.sent_signals.add(latest_trade['Signal_ID'])
             st.toast(f"Telegram Alert Sent for {clean_symbol_name} {c_type}!", icon="📲")
 
