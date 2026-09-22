@@ -1,4 +1,5 @@
 import streamlit as st
+import ccxt
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -7,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- PAGE CONFIG & LAYOUT ---
 st.set_page_config(
-    page_title="IPDA Pro Terminal & Telegram Bot",
+    page_title="IPDA Pro",
     page_icon="🏛️",
     layout="wide"
 )
@@ -15,8 +16,8 @@ st.set_page_config(
 # Auto Refresh Every 300 Seconds
 st_autorefresh(interval=300 * 1000, key="ipda_auto_refresh")
 
-st.title("🏛️ IPDA Pro Terminal & Telegram Alert Engine")
-st.caption("Binance Futures Risk Management • SLST Timezone (UTC+5:30) • Cloud-Bypass Data Engine")
+st.title("🏛️ IPDA Pro Master Entry ")
+st.caption("Binance Futures Risk Management • SLST Timezone (UTC+5:30) • Instant Telegram Signals")
 
 # --- TOP 50 BINANCE PERPETUAL COINS LIST ---
 TOP_50_COINS = [
@@ -77,40 +78,26 @@ def send_telegram_alert(token, chat_id, message):
     except Exception as e:
         st.sidebar.error(f"Telegram Alert Error: {e}")
 
-# --- 1. DATA ENGINE (Direct Binance Public Futures API with SLST Conversion) ---
+# --- 1. DATA ENGINE (Binance API with SLST Timezone Conversion) ---
 @st.cache_data(ttl=10)
 def fetch_futures_data(symbol_name, tf, limit=300):
     try:
-        # Format symbol for Binance Futures API (e.g. BTC/USDT -> BTCUSDT)
-        formatted_symbol = symbol_name.replace("/", "")
-        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={formatted_symbol}&interval={tf}&limit={limit}"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            st.error(f"Binance API Error [{response.status_code}]: {response.text}")
+        exchange = ccxt.binance({
+            'options': {'defaultType': 'future'},
+            'enableRateLimit': True,
+        })
+        ohlcv = exchange.fetch_ohlcv(symbol_name, timeframe=tf, limit=limit)
+        if not ohlcv:
             return pd.DataFrame()
             
-        data = response.json()
-        
-        # Parse OHLCV Array from Binance API
-        df = pd.DataFrame(data, columns=[
-            'Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume',
-            'Close_Time', 'Quote_Volume', 'Trades', 'Taker_Buy_Base', 'Taker_Buy_Quote', 'Ignore'
-        ])
-        
+        df = pd.DataFrame(ohlcv, columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
-        # Convert UTC Timestamp to Sri Lanka Standard Time (SLST - Asia/Colombo)
         df['Timestamp'] = pd.to_datetime(df['Timestamp'], unit='ms', utc=True)
         df['Timestamp'] = df['Timestamp'].dt.tz_convert('Asia/Colombo')
         df.set_index('Timestamp', inplace=True)
-        
-        return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+        return df
     except Exception as e:
         st.error(f"Binance Data Fetch Error for {symbol_name}: {e}")
         return pd.DataFrame()
